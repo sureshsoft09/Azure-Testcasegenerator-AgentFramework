@@ -37,7 +37,19 @@ async def enhance_artifact_chat(body: EnhanceChatRequest):
         f"Artifact ({body.artifactType}):\n{json.dumps(artifact, indent=2)}\n\n"
         f"User request: {body.message}"
     )
-    messages = await agent_service.agent_workflow_run(enhance_prompt)
+
+    prompt = f"""
+    This is a clarification for any specific use case or test case request from the user.
+    The user has provided additional information or clarifications for the test cases/ use cases previously generated.
+    master_agent should forward it to the enhance_agent not to any other tools. 
+    
+    Context:
+    - Type: Enhance Clarification Interaction
+    - Intent: Provide clarification, or confirm requirements as complete to change/ enhance existing test case/ use case.
+    - Return with the calrification or changed/ enhanced use case/ test case in user friendly format not in JSON format.
+    - User message: {body.message}    
+    """
+    messages = await agent_service.agent_workflow_run(prompt)
     agent_content = "\n".join(messages)
 
     return EnhanceChatResponse(

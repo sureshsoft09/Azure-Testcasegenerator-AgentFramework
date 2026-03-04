@@ -125,7 +125,7 @@ async def review_requirements(project_id: str, body: dict):
 
     """
     messages = await agent_service.agent_workflow_run(prompt)
-    
+
     agent_content = "\n".join(messages)
 
     return {
@@ -140,8 +140,20 @@ async def review_requirements(project_id: str, body: dict):
 
 @router.post("/projects/{project_id}/review/chat", response_model=ReviewChatResponse)
 async def review_chat(project_id: str, body: ReviewChatRequest):
+
+    prompt = f"""
+    This is a clarification continuation request from the user for requirement review.
+    The user has provided additional information or confirmation regarding previously
+    identified ambiguous or missing requirements. It should be forwarded to the requirement_reviewer_agent not to any other tools. 
+
+    Context:
+    - Type: Clarification Interaction
+    - Intent: Resolve pending ambiguities, provide clarification, or confirm requirements as complete.
+    - User message: {body.message}
+    
+    """
     # Call agent service directly with the user message
-    messages = await agent_service.agent_workflow_run(body.message)
+    messages = await agent_service.agent_workflow_run(prompt)
     agent_content = "\n".join(messages)
 
     return ReviewChatResponse(
@@ -164,7 +176,13 @@ async def generate_test_cases(project_id: str, body: GenerateTestCasesRequest):
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Build prompt from any context included in the request
-    generate_prompt = "Generate test cases for this project."
+    generate_prompt = f"""
+    Generate complete test cases using the previously validated and approved requirement details available in memory. 
+    Follow the standard MedAssureAI process and use the connected agent testcasegenerator_agent
+    to generate test cases in a structured format.
+
+    User instruction: {body.message}
+    """
     messages = await agent_service.agent_workflow_run(generate_prompt)
     epics = []  # Structured artifacts parsed from agent messages if needed
 
