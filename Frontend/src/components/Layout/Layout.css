@@ -1,0 +1,194 @@
+/* --- App Shell --------------------------------------------------------------- */
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* --- Top Bar ----------------------------------------------------------------- */
+.topbar {
+  flex-shrink: 0;
+  height: 62px;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(90deg, #020E30 0%, #031A50 60%, #042060 100%);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
+  padding: 0 24px;
+  position: relative;
+  z-index: 100;
+}
+
+.topbar::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--cog-blue-bright) 20%,
+    var(--cog-blue-light) 50%,
+    var(--cog-blue-bright) 80%,
+    transparent 100%
+  );
+  opacity: 0.7;
+}
+
+/* --- Brand ------------------------------------------------------------------- */
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  flex-shrink: 0;
+  min-width: 270px;
+}
+
+.brand-logo {
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 8px rgba(0, 116, 217, 0.5));
+}
+
+.brand-logo-img {
+  height: 44px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+  filter: brightness(0) invert(1);
+  opacity: 0.95;
+}
+
+.topbar-divider-thin {
+  width: 1px;
+  height: 26px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 14px;
+  flex-shrink: 0;
+}
+
+.brand-text { display: flex; flex-direction: column; gap: 2px; }
+
+.brand-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.brand-sub {
+  font-size: 10px;
+  color: var(--cog-blue-glow);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  opacity: 0.85;
+}
+
+/* --- Divider ----------------------------------------------------------------- */
+.topbar-divider {
+  width: 1px;
+  height: 30px;
+  background: linear-gradient(to bottom, transparent, var(--border-light), transparent);
+  margin: 0 22px;
+  flex-shrink: 0;
+}
+
+/* --- Nav Tabs ---------------------------------------------------------------- */
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+
+.topnav-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border-radius: 7px;
+  color: #7A9FC0;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all var(--transition);
+  letter-spacing: 0.01em;
+  position: relative;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.topnav-item:hover {
+  color: #ffffff;
+  background: rgba(0, 116, 217, 0.14);
+  border-color: rgba(0, 116, 217, 0.2);
+}
+
+.topnav-item.active {
+  color: #ffffff;
+  background: rgba(0, 116, 217, 0.22);
+  border-color: rgba(0, 116, 217, 0.4);
+  box-shadow: 0 0 16px rgba(0, 116, 217, 0.2);
+}
+
+.topnav-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: -8px; left: 20%; right: 20%;
+  height: 2px;
+  background: linear-gradient(90deg, var(--cog-blue-bright), var(--cog-blue-light));
+  border-radius: 2px;
+}
+
+/* --- Right Side -------------------------------------------------------------- */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(0, 200, 122, 0.1);
+  border: 1px solid rgba(0, 200, 122, 0.25);
+  font-size: 11px;
+  font-weight: 700;
+  color: #00C87A;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--success);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--success);
+  flex-shrink: 0;
+  animation: pulse-dot 2.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 6px var(--success); }
+  50%       { box-shadow: 0 0 14px var(--success), 0 0 4px #fff; }
+}
+
+/* --- Main Content ------------------------------------------------------------ */
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+
+.content-inner {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 28px 32px;
+}
