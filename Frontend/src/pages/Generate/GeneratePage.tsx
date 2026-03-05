@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { MdUploadFile, MdCheckCircle, MdCloudUpload } from 'react-icons/md';
 import toast from 'react-hot-toast';
@@ -8,6 +8,169 @@ import Spinner from '../../components/Spinner';
 import ChatPanel from '../../components/ChatPanel';
 import ArtifactTree from '../../components/ArtifactTree';
 import { ChatMessage, GenerationResult } from '../../types';
+
+// ─── Helper Functions ──────────────────────────────────────────────────────────
+
+/**
+ * Parse JSON from backend message content and format it for display
+ */
+function parseAndFormatAgentResponse(content: string): { formattedContent: string; jsonData: any } | null {
+  try {
+    // Strip agent prefix like "[agent]: " or "[Master]: " if present
+    let cleanContent = content.trim();
+    const agentPrefixMatch = cleanContent.match(/^\[[\w\s]+\]:\s*/);
+    if (agentPrefixMatch) {
+      cleanContent = cleanContent.substring(agentPrefixMatch[0].length);
+    }
+    
+    console.log('Attempting to parse content:', cleanContent.substring(0, 200));
+    
+    // Try to parse the content as JSON
+    const jsonData = JSON.parse(cleanContent);
+    
+    console.log('Successfully parsed JSON:', jsonData);
+    
+    // Format the response for display
+    const lines: string[] = [];
+    const overallStatus = jsonData.overall_status || '';
+    
+    if (overallStatus === 'Clarifications Needed') {
+      lines.push('## 📋 Requirement Review');
+      lines.push('');
+      
+      const readiness = jsonData.readiness_plan || {};
+      if (readiness.estimated_epics) {
+        lines.push('### 📊 Estimated Test Artifacts');
+        lines.push(`- **Epics:** ${readiness.estimated_epics || 0}`);
+        lines.push(`- **Features:** ${readiness.estimated_features || 0}`);
+        lines.push(`- **Use Cases:** ${readiness.estimated_use_cases || 0}`);
+        lines.push(`- **Test Cases:** ${readiness.estimated_test_cases || 0}`);
+        lines.push('');
+      }
+      
+      const questions = jsonData.assistant_response || [];
+      if (questions.length > 0) {
+        lines.push('### 💬 Clarifications Needed:');
+        lines.push('');
+        for (const q of questions) {
+          // Check if this question contains inline numbered items like "1) ... 2) ... 3)"
+          const hasInlineNumbers = /\b1\)\s/.test(q) && /\b2\)\s/.test(q);
+          if (hasInlineNumbers) {
+            // Extract intro text before "1)"
+            const firstNumIdx = q.search(/\b1\)\s/);
+            if (firstNumIdx > 0) {
+              lines.push(q.substring(0, firstNumIdx).trim());
+              lines.push('');
+            }
+            // Split numbered items on "N) " boundaries
+            const numbered = firstNumIdx >= 0 ? q.substring(firstNumIdx) : q;
+            const parts = numbered.split(/\s*\d+\)\s+/).filter((s: string) => s.trim());
+            for (const part of parts) {
+              lines.push(`- ${part.replace(/,\s*$/, '').trim()}`);
+            }
+          } else {
+            lines.push(`- ${q}`);
+          }
+          lines.push('');
+        }
+      }
+      
+      if (jsonData.next_action) {
+        lines.push(`**Next Step:** ${jsonData.next_action}`);
+      }
+    } else if (overallStatus === 'Ready for Test Generation') {
+      lines.push('## ✅ Requirements Approved!');
+      lines.push('');
+      
+      const readiness = jsonData.readiness_plan || {};
+      lines.push('### 📊 Estimated Test Artifacts');
+      lines.push(`- **Epics:** ${readiness.estimated_epics || 0}`);
+      lines.push(`- **Features:** ${readiness.estimated_features || 0}`);
+      lines.push(`- **Use Cases:** ${readiness.estimated_use_cases || 0}`);
+      lines.push(`- **Test Cases:** ${readiness.estimated_test_cases || 0}`);
+      lines.push('');
+      
+      const responses = jsonData.assistant_response || [];
+      if (responses.length > 0) {
+        for (const msg of responses) {
+          lines.push(msg);
+        }
+        lines.push('');
+      }
+      
+      lines.push('✨ Ready to generate test cases!');
+    }
+    
+    const formatted = lines.join('\n');
+    console.log('Formatted content:', formatted);
+    
+    return {
+      formattedContent: formatted,
+      jsonData
+    };
+  } catch (e) {
+    console.error('Failed to parse agent response:', e, 'Content:', content.substring(0, 200));
+    // If parsing fails, return the original content
+    return null;
+  }
+}
+
+/**
+ * Process backend review response data
+ */
+function processReviewData(data: any): { messages: ChatMessage[]; allClarified: boolean; estimatedArtifacts: any } {
+  console.log('Processing review data:', data);
+  
+  const processedMessages: ChatMessage[] = [];
+  let allClarified = false;
+  let estimatedArtifacts = null;
+  
+  if (data.messages && Array.isArray(data.messages)) {
+    console.log('Found messages array with', data.messages.length, 'messages');
+    
+    for (const msg of data.messages) {
+      console.log('Processing message:', msg);
+      const parsed = parseAndFormatAgentResponse(msg.content);
+      
+      if (parsed) {
+        console.log('Successfully parsed message, adding to processed messages');
+        processedMessages.push({
+          role: 'agent',
+          content: parsed.formattedContent,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Extract metadata from JSON
+        const jsonData = parsed.jsonData;
+        if (jsonData.overall_status === 'Ready for Test Generation' || jsonData.test_generation_status?.ready_for_generation) {
+          allClarified = true;
+        }
+        
+        const readiness = jsonData.readiness_plan;
+        if (readiness && readiness.estimated_epics) {
+          estimatedArtifacts = {
+            epics: readiness.estimated_epics,
+            features: readiness.estimated_features,
+            useCases: readiness.estimated_use_cases,
+            testCases: readiness.estimated_test_cases
+          };
+        }
+      } else {
+        console.log('Failed to parse message, using original content');
+        // Fallback to original content if parsing fails
+        processedMessages.push({
+          role: msg.role || 'agent',
+          content: msg.content,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  }
+  
+  console.log('Finished processing. Result:', { messages: processedMessages.length, allClarified, estimatedArtifacts });
+  
+  return { messages: processedMessages, allClarified, estimatedArtifacts };
+}
 
 // ─── Step indicators ───────────────────────────────────────────────────────────
 const STEPS = ['Create Project', 'Upload Requirements', 'Review & Chat', 'Generated Artifacts'];
@@ -89,7 +252,7 @@ function Step1CreateProject({ onNext }: { onNext: (projectId: string) => void })
 }
 
 // ─── Step 2: Upload Requirements ───────────────────────────────────────────────
-function Step2Upload({ projectId, onNext }: { projectId: string; onNext: (sessionId: string) => void }) {
+function Step2Upload({ projectId, onNext }: { projectId: string; onNext: (sessionId: string, reviewData?: any) => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -130,9 +293,9 @@ function Step2Upload({ projectId, onNext }: { projectId: string; onNext: (sessio
         
         // Now start the review
         setReviewing(true);
-        await generateApi.reviewRequirements(projectId, newSessionId);
+        const reviewRes = await generateApi.reviewRequirements(projectId, newSessionId);
         toast.success('Review started');
-        onNext(newSessionId);
+        onNext(newSessionId, reviewRes.data);
       } catch (err: any) {
         toast.error(err?.response?.data?.detail ?? 'Upload or review failed');
       } finally {
@@ -145,9 +308,9 @@ function Step2Upload({ projectId, onNext }: { projectId: string; onNext: (sessio
     // If already uploaded, just start review
     setReviewing(true);
     try {
-      await generateApi.reviewRequirements(projectId, sessionId);
+      const res = await generateApi.reviewRequirements(projectId, sessionId);
       toast.success('Review started');
-      onNext(sessionId);
+      onNext(sessionId, res.data);
     } catch (err: any) {
       toast.error(err?.response?.data?.detail ?? 'Review failed');
     } finally {
@@ -194,12 +357,35 @@ function Step2Upload({ projectId, onNext }: { projectId: string; onNext: (sessio
 }
 
 // ─── Step 3: Review & Chat ─────────────────────────────────────────────────────
-function Step3ReviewChat({ projectId, sessionId, onNext }: { projectId: string; sessionId: string; onNext: (result: GenerationResult) => void }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+function Step3ReviewChat({ projectId, sessionId, initialData, onNext }: { projectId: string; sessionId: string; initialData?: any; onNext: (result: GenerationResult) => void }) {
+  // Process initial data if provided
+  console.log('Step3ReviewChat mounted with initialData:', initialData);
+  const processed = initialData ? processReviewData(initialData) : { messages: [], allClarified: false, estimatedArtifacts: null };
+  console.log('Processed data:', processed);
+  
+  const [messages, setMessages] = useState<ChatMessage[]>(processed.messages);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [allClarified, setAllClarified] = useState(false);
-  const [estimated, setEstimated] = useState<{ epics: number; features: number; useCases: number; testCases: number } | null>(null);
+  const [allClarified, setAllClarified] = useState(processed.allClarified);
+  const [estimated, setEstimated] = useState<{ epics: number; features: number; useCases: number; testCases: number } | null>(processed.estimatedArtifacts);
+  
+  console.log('Step3ReviewChat state - messages:', messages);
+  console.log('Step3ReviewChat state - messages length:', messages.length);
+  console.log('Step3ReviewChat state - messages content:', messages.map(m => ({ role: m.role, contentLength: m.content.length })));
+
+  // Update state when initialData changes
+  useEffect(() => {
+    if (initialData) {
+      console.log('useEffect triggered - initialData changed:', initialData);
+      const processed = processReviewData(initialData);
+      console.log('useEffect processed data:', processed);
+      setMessages(processed.messages);
+      setAllClarified(processed.allClarified);
+      if (processed.estimatedArtifacts) {
+        setEstimated(processed.estimatedArtifacts);
+      }
+    }
+  }, [initialData]);
 
   const handleSend = async (text: string) => {
     const userMsg: ChatMessage = { role: 'user', content: text, timestamp: new Date().toISOString() };
@@ -207,8 +393,21 @@ function Step3ReviewChat({ projectId, sessionId, onNext }: { projectId: string; 
     setLoading(true);
     try {
       const res = await generateApi.reviewChat(projectId, sessionId, text);
-      const { messages: msgs, allClarified: done, estimatedArtifacts } = res.data;
-      setMessages(msgs);
+      
+      // Check if backend returns formatted data or raw JSON strings
+      let processedData = res.data;
+      if (res.data.messages && res.data.messages.length > 0 && res.data.messages[0].content) {
+        // Try to parse if content is a JSON string
+        const firstMsg = res.data.messages[0];
+        const parsed = parseAndFormatAgentResponse(firstMsg.content);
+        if (parsed) {
+          // Backend returned raw JSON, process it
+          processedData = processReviewData(res.data);
+        }
+      }
+      
+      const { messages: msgs, allClarified: done, estimatedArtifacts } = processedData;
+      setMessages(prev => [...prev, ...msgs.filter((m: ChatMessage) => m.role === 'agent')]);
       setAllClarified(done);
       if (estimatedArtifacts) setEstimated(estimatedArtifacts);
     } catch {
@@ -243,6 +442,7 @@ function Step3ReviewChat({ projectId, sessionId, onNext }: { projectId: string; 
             onSend={handleSend}
             loading={loading}
             placeholder="Answer the agent's questions…"
+            disabled={allClarified}
             extraActions={
               allClarified ? (
                 <button className="btn btn-success" onClick={handleGenerate} disabled={generating}>
@@ -313,6 +513,7 @@ function Step4Results({ result }: { result: GenerationResult }) {
 export default function GeneratePage() {
   const { generateStep, setGenerateStep, generateProjectId, setGenerateProjectId, generateSessionId, setGenerateSessionId } = useAppStore();
   const [result, setResult] = useState<GenerationResult | null>(null);
+  const [reviewData, setReviewData] = useState<any>(null);
 
   return (
     <div className="page-container">
@@ -329,12 +530,13 @@ export default function GeneratePage() {
         <Step1CreateProject onNext={(id) => { setGenerateProjectId(id); setGenerateStep(2); }} />
       )}
       {generateStep === 2 && generateProjectId && (
-        <Step2Upload projectId={generateProjectId} onNext={(sid) => { setGenerateSessionId(sid); setGenerateStep(3); }} />
+        <Step2Upload projectId={generateProjectId} onNext={(sid, data) => { setGenerateSessionId(sid); setReviewData(data); setGenerateStep(3); }} />
       )}
       {generateStep === 3 && generateProjectId && generateSessionId && (
         <Step3ReviewChat
           projectId={generateProjectId}
           sessionId={generateSessionId}
+          initialData={reviewData}
           onNext={(res) => { setResult(res); setGenerateStep(4); }}
         />
       )}

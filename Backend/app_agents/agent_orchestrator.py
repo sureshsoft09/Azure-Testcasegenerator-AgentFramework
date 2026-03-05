@@ -34,6 +34,41 @@ ENHANCE_INSTRUCTIONS = enhance_agent.AGENT_INSTRUCTIONS
 MIGRATION_AGENT_NAME = migration_agent.AGENT_NAME
 MIGRATION_INSTRUCTIONS = migration_agent.AGENT_INSTRUCTIONS
 
+# Agent Configuration Settings
+# Each agent can have specific model behavior configuration
+AGENT_CONFIGS = {
+    'master': {
+        'temperature': 0.7,  # Balanced for routing decisions
+        'top_p': 0.95,
+        'max_tokens': 4000,
+        'description': 'Master orchestrator agent for healthcare test case generation workflow'
+    },
+    'reqreviewer': {
+        'temperature': 0.3,  # Lower for consistent requirement analysis
+        'top_p': 0.9,
+        'max_tokens': 8000,
+        'description': 'Requirements review agent - validates healthcare compliance and regulatory standards'
+    },
+    'testgenerator': {
+        'temperature': 0.5,  # Moderate for structured test case generation
+        'top_p': 0.95,
+        'max_tokens': 16000,
+        'description': 'Test case generator agent - creates comprehensive test artifacts with healthcare compliance mappings'
+    },
+    'enhance': {
+        'temperature': 0.4,  # Lower for precise enhancement of existing artifacts
+        'top_p': 0.9,
+        'max_tokens': 8000,
+        'description': 'Enhancement agent - updates and improves existing test artifacts while maintaining compliance'
+    },
+    'migration': {
+        'temperature': 0.3,  # Lower for consistent migration and transformation
+        'top_p': 0.9,
+        'max_tokens': 8000,
+        'description': 'Migration agent - transforms external test artifacts to healthcare-compliant format'
+    }
+}
+
 
 class AgentOrchestrator:
     """
@@ -72,44 +107,57 @@ class AgentOrchestrator:
         self.workflow = None
         self.foundry_client = None
         
-        # Load Jira MCP configuration (mandatory)
+        # Load Jira MCP configuration
         self.jira_mcp_url = os.getenv("JIRA_MCP_SERVER_URL", "http://localhost:8002/mcp")
-        print(f"Initializing Jira MCP tool: {self.jira_mcp_url}")
-        
-        # Initialize Jira MCP tool
-        self.jira_mcp_tool = MCPStreamableHTTPTool(
-            name="jira-mcp-server",
-            description="Jira MCP server to create, update and search Jira Issues.",
-            url=self.jira_mcp_url
-        )
+        self.jira_mcp_tool = None  # Created lazily after reachability check
         
         print(f"✓ AgentOrchestrator instance created")
     
-    async def get_or_create_agent(self, name: str, instructions: str):
+    async def get_or_create_agent(self, name: str, instructions: str, config: dict = None):
         """
         Check if agent exists in Foundry, if not create it.
         
         Args:
             name: Agent name
             instructions: Agent instructions
+            config: Optional configuration dict with temperature, top_p, max_tokens, description
             
         Returns:
             Agent object from Azure AI Foundry
         """
         print(f"Checking if agent '{name}' exists in Foundry...")
         
+        # Prepare config parameters
+        config = config or {}
+        temperature = config.get('temperature', 0.7)
+        top_p = config.get('top_p', 0.95)
+        max_tokens = config.get('max_tokens', 4000)
+        description = config.get('description', '')
+        
         # List all agents (run in thread pool to avoid blocking)
-        existing_agents = await asyncio.to_thread(self.agents_client.list_agents)
+        existing_agents_iter = await asyncio.to_thread(self.agents_client.list_agents)
+        existing_agents = list(existing_agents_iter)
+        
+        # Print all existing agent names
+        if existing_agents:
+            print(f"  Existing agents in Foundry ({len(existing_agents)} total):")
+            for idx, agent in enumerate(existing_agents, start=1):
+                print(f"    {idx}. {agent.name}")
+        else:
+            print("  No existing agents found in Foundry")
         
         # Check if agent with this name already exists
         for agent in existing_agents:
             if agent.name == name:
-                if os.getenv("UPDATE_AGENT_INSTRUCTIONS", "true").lower() == "true":
-                    print(f"  ✓ Found existing agent: {agent.name} (ID: {agent.id}) — updating instructions...")
+                if os.getenv("UPDATE_FOUNDRY_AGENT", "true").lower() == "true":
+                    print(f"  ✓ Found existing agent: {agent.name} (ID: {agent.id}) — updating with config...")
+                    print(f"    Temperature: {temperature}, Top-P: {top_p}, Max Tokens: {max_tokens}")
                     updated = await asyncio.to_thread(
                         self.agents_client.update_agent,
                         agent.id,
-                        instructions=instructions
+                        instructions=instructions,
+                        temperature=temperature,
+                        top_p=top_p
                     )
                     return updated
                 else:
@@ -117,12 +165,19 @@ class AgentOrchestrator:
                     return agent
         
         # Agent doesn't exist, create it
-        print(f"  Creating new agent '{name}'...")
+        print(f"  Creating new agent '{name}' with config...")
+        print(f"    Temperature: {temperature}, Top-P: {top_p}, Max Tokens: {max_tokens}")
+        if description:
+            print(f"    Description: {description}")
+        
         new_agent = await asyncio.to_thread(
             self.agents_client.create_agent,
             model=self.model_deployment_name,
             name=name,
             instructions=instructions,
+            temperature=temperature,
+            top_p=top_p,
+            description=description
         )
         print(f"  ✓ Created agent: {new_agent.name} (ID: {new_agent.id})")
         return new_agent
@@ -131,20 +186,23 @@ class AgentOrchestrator:
         """
         Set up all agents in Azure AI Foundry.
         Creates agents if they don't exist, or retrieves existing ones.
+        Each agent is configured with specific temperature and behavior settings.
         """
         print("\n" + "="*60)
         print("SETTING UP AGENTS IN AZURE AI FOUNDRY")
         print("="*60 + "\n")
         
-        # Create/get all agents in Foundry
+        # Create/get all agents in Foundry with their specific configurations
         self.foundry_agents['master'] = await self.get_or_create_agent(
             name=MASTER_AGENT_NAME,
-            instructions=MASTER_INSTRUCTIONS
+            instructions=MASTER_INSTRUCTIONS,
+            config=AGENT_CONFIGS['master']
         )
         
         self.foundry_agents['reqreviewer'] = await self.get_or_create_agent(
             name=REQREVIEWER_AGENT_NAME,
-            instructions=REQREVIEWER_INSTRUCTIONS
+            instructions=REQREVIEWER_INSTRUCTIONS,
+            config=AGENT_CONFIGS['reqreviewer']
         )
         
         # Create testgenerator agent with Jira integration instructions
@@ -153,21 +211,43 @@ class AgentOrchestrator:
         
         self.foundry_agents['testgenerator'] = await self.get_or_create_agent(
             name=TESTGEN_AGENT_NAME,
-            instructions=testgen_instructions
+            instructions=testgen_instructions,
+            config=AGENT_CONFIGS['testgenerator']
         )
         
         self.foundry_agents['enhance'] = await self.get_or_create_agent(
             name=ENHANCE_AGENT_NAME,
-            instructions=ENHANCE_INSTRUCTIONS
+            instructions=ENHANCE_INSTRUCTIONS,
+            config=AGENT_CONFIGS['enhance']
         )
         
         self.foundry_agents['migration'] = await self.get_or_create_agent(
             name=MIGRATION_AGENT_NAME,
-            instructions=MIGRATION_INSTRUCTIONS
+            instructions=MIGRATION_INSTRUCTIONS,
+            config=AGENT_CONFIGS['migration']
         )
         
-        print(f"\n✓ All {len(self.foundry_agents)} agents ready in Foundry")
-    
+        print(f"\n✓ All {len(self.foundry_agents)} agents ready in Foundry with custom configurations")
+
+    async def _check_jira_mcp_available(self) -> bool:
+        """Check if the Jira MCP server is reachable before attaching it as a tool."""
+        import urllib.parse
+        import socket
+        try:
+            parsed = urllib.parse.urlparse(self.jira_mcp_url)
+            host = parsed.hostname or "localhost"
+            port = parsed.port or 80
+            loop = asyncio.get_event_loop()
+            await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: socket.create_connection((host, port), timeout=3)),
+                timeout=3
+            )
+            print(f"  Jira MCP server reachable at {self.jira_mcp_url}")
+            return True
+        except Exception as e:
+            print(f"  Jira MCP server not reachable at {self.jira_mcp_url}: {e}")
+            return False
+
     async def initialize_workflow(self):
         """
         Initialize the GroupChat workflow with all agents.
@@ -199,13 +279,27 @@ class AgentOrchestrator:
             name=self.foundry_agents['reqreviewer'].name
         )
         
-        # Wrap testgenerator agent with Jira MCP tool
-        testgenerator_agent = self.foundry_client.as_agent(
-            agent_id=self.foundry_agents['testgenerator'].id,
-            name=self.foundry_agents['testgenerator'].name
-            ,tools=[self.jira_mcp_tool]
-        )
-        print(f"  ✓ Attached Jira MCP tool to {self.foundry_agents['testgenerator'].name}")
+        # Wrap testgenerator agent, attaching Jira MCP tool only if the server is reachable
+        jira_available = await self._check_jira_mcp_available()
+        if jira_available:
+            if not self.jira_mcp_tool:
+                self.jira_mcp_tool = MCPStreamableHTTPTool(
+                    name="jira-mcp-server",
+                    description="Jira MCP server to create, update and search Jira Issues.",
+                    url=self.jira_mcp_url
+                )
+            testgenerator_agent = self.foundry_client.as_agent(
+                agent_id=self.foundry_agents['testgenerator'].id,
+                name=self.foundry_agents['testgenerator'].name,
+                tools=[self.jira_mcp_tool]
+            )
+            print(f"  ✓ Attached Jira MCP tool to {self.foundry_agents['testgenerator'].name}")
+        else:
+            testgenerator_agent = self.foundry_client.as_agent(
+                agent_id=self.foundry_agents['testgenerator'].id,
+                name=self.foundry_agents['testgenerator'].name
+            )
+            print(f"  ⚠ Jira MCP server not reachable at {self.jira_mcp_url} — running without Jira tools")
         
         enhance_agent = self.foundry_client.as_agent(
             agent_id=self.foundry_agents['enhance'].id,
@@ -219,6 +313,7 @@ class AgentOrchestrator:
         
         # Build Handoff workflow with master_agent as start agent
         print(f"Building Handoff workflow with {MASTER_AGENT_NAME} as start agent...")
+        
         self.workflow = (
             HandoffBuilder(
                 name="testcasegenerator",
@@ -235,6 +330,7 @@ class AgentOrchestrator:
         )
         
         print("✓ Workflow initialized successfully\n")
+        print("  Note: Sub-agents instructed to return JSON only (no transfers to other agents)\n")
     
     async def run_workflow(self, user_input: str) -> List:
         """
@@ -304,7 +400,7 @@ class AgentOrchestrator:
         for agent_name, content in text_buffer.items():
             content = content.strip()
             if content:
-                messages.append({'agent': agent_name, 'content': content})
+                messages.append({"content": content})
 
         # Fallback: specialist answer may be in request_info → HandoffAgentUserRequest
         if not got_streaming_text:
@@ -321,7 +417,7 @@ class AgentOrchestrator:
                         for msg in resp.messages:
                             text = getattr(msg, 'text', None)
                             if text and text.strip():
-                                messages.append({'agent': agent_name, 'content': text.strip()})
+                                messages.append({'content': text.strip()})
 
         print("✓ Workflow execution completed")
         if handoff_trace:
