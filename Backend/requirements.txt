@@ -20,7 +20,7 @@ dicttoxml>=1.7.0
 xlsxwriter>=3.2.0
 
 # Microsoft Agent Framework dependencies
-azure-ai-agents>=1.0.0
-agent-framework>=1.0.0rc2
+azure-ai-agents==1.2.0b5
+agent-framework==1.0.0rc2
 azure-identity>=1.15.0
 python-dotenv>=1.0.0
