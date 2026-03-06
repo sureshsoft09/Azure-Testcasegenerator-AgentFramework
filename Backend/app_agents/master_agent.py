@@ -3,8 +3,7 @@ Master Agent (Orchestrator Agent)
 
 This agent serves as the central orchestrator for the Healthcare Test Case Generation system.
 It coordinates requirement review, test generation, enhancement, and migration flows for healthcare
-compliance and traceability. This is the ONLY agent allowed to call Jira MCP tools and coordinate
-with backend APIs for Cosmos DB storage.
+compliance and traceability. 
 """
 
 AGENT_NAME = "testcasegenerator_master_agent"

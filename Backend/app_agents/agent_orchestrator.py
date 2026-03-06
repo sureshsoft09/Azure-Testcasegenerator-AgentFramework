@@ -284,7 +284,7 @@ class AgentOrchestrator:
         if jira_available:
             if not self.jira_mcp_tool:
                 self.jira_mcp_tool = MCPStreamableHTTPTool(
-                    name="jira-mcp-server",
+                    name="JiraMCP Server",
                     description="Jira MCP server to create, update and search Jira Issues.",
                     url=self.jira_mcp_url
                 )
@@ -350,8 +350,8 @@ class AgentOrchestrator:
         print("\n" + "="*60)
         print("RUNNING WORKFLOW")
         print("="*60)
-        print(f"\nUser Input: {user_input}\n")
-        print("Executing workflow (streaming)...")
+        #print(f"\nUser Input: {user_input}\n")
+        print(f"\nExecuting workflow (streaming)...")
 
         messages: List[dict] = []
         handoff_trace: List[str] = []

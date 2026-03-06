@@ -23,7 +23,18 @@ async def get_project_artifacts_hierarchy(project_id: str):
     try:
         artifacts = await cosmos_service.get_project_artifacts(project_id)
         if not artifacts:
-            raise HTTPException(status_code=404, detail="Project artifacts not found")
+            # Return an empty structure rather than 404 so the frontend
+            # renders cleanly for projects that haven't been generated yet.
+            return {
+                "projectId": project_id,
+                "projectName": "",
+                "jiraProjectKey": "",
+                "epics": [],
+                "totalEpics": 0,
+                "totalFeatures": 0,
+                "totalUseCases": 0,
+                "totalTestCases": 0,
+            }
         return artifacts
     except HTTPException:
         raise

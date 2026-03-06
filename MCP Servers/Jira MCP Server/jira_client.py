@@ -123,6 +123,59 @@ class JiraClient:
             logger.error(f"create_issue failed: {exc}")
             raise
 
+    # ─── Issues – Batch Create ────────────────────────────────────────────
+
+    def batch_create_issues(
+        self,
+        issues: List[Dict[str, Any]],
+        project_key: str,
+    ) -> Dict[str, Any]:
+        """
+        Create multiple Jira issues in sequence.
+
+        Each item in `issues` must contain:
+            summary     (str) – issue title
+            description (str) – issue body. For Use Cases and Test Cases, append
+                               the parent issue URL as plain text at the end, e.g.:
+                               "\n\nRelated Feature: https://jira.../browse/PROJ-10"
+            issue_type  (str) – Epic | New Feature | Story | Task
+
+        Optional per-issue fields:
+            priority   (str)  – Highest / High / Medium / Low / Lowest
+            epic_link  (str)  – epic key to link to (Epic → Feature only)
+            labels     (list) – list of label strings
+        """
+        created: List[Dict[str, Any]] = []
+        failed: List[Dict[str, Any]] = []
+
+        for idx, issue in enumerate(issues):
+            try:
+                result = self.create_issue(
+                    project_key=project_key,
+                    issue_type=issue.get("issue_type", "Task"),
+                    summary=issue["summary"],
+                    description=issue.get("description", ""),
+                    priority=issue.get("priority", "Medium"),
+                    parent_key=issue.get("parent_key"),
+                    epic_link=issue.get("epic_link"),
+                    labels=issue.get("labels"),
+                )
+                created.append({
+                    "index": idx,
+                    "jira_issue_id": result["id"],
+                    "jira_issue_key": result["key"],
+                    "jira_issue_url": result["url"],
+                    "summary": result.get("summary", ""),
+                })
+            except Exception as exc:
+                failed.append({
+                    "index": idx,
+                    "summary": issue.get("summary", ""),
+                    "error": str(exc),
+                })
+
+        return {"created": created, "failed": failed, "total": len(issues)}
+
     # ─── Issues – Read ────────────────────────────────────────────────────
 
     def get_issue(self, issue_key: str) -> Dict[str, Any]:
@@ -228,6 +281,33 @@ class JiraClient:
             return {"id": comment.id, "body": comment.body, "created": str(comment.created)}
         except Exception as exc:
             logger.error(f"add_comment failed for {issue_key}: {exc}")
+            raise
+
+    # ─── Issue Links ───────────────────────────────────────────────────────
+
+    def link_issues(
+        self,
+        from_key: str,
+        to_key: str,
+        link_type: str = "Relates to",
+    ) -> Dict[str, Any]:
+        """
+        Create a named link between two Jira issues.
+        Common link_type values: 'Relates to', 'Blocks', 'is blocked by',
+        'Cloners', 'Duplicate', 'is tested by'.
+        """
+        client = self._get()
+        if not client:
+            return {"fromKey": from_key, "toKey": to_key, "linkType": link_type, "mock": True}
+        try:
+            client.create_issue_link(
+                type=link_type,
+                inwardIssue=from_key,
+                outwardIssue=to_key,
+            )
+            return {"fromKey": from_key, "toKey": to_key, "linkType": link_type, "linked": True}
+        except Exception as exc:
+            logger.error(f"link_issues failed ({from_key} → {to_key}): {exc}")
             raise
 
     # ─── Transitions ──────────────────────────────────────────────────────

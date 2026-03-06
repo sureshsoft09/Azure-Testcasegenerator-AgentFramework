@@ -1,3 +1,4 @@
+import os
 import uuid
 import logging
 import json
@@ -541,13 +542,15 @@ async def generate_test_cases(project_id: str, body: GenerateTestCasesRequest):
     }
     """
 
+    jira_project_key = project.get("jiraProjectKey", "PROJ")
+
     generate_prompt = f"""
     ROUTE TO: testcasegenerator_testcasegenerator_agent
 
     You are the test case generator agent. Generate complete test cases from the previously reviewed and approved requirements.
     Produce structured test artifacts (Epics, Features, Use Cases, Test Cases) with full compliance mappings.
 
-    Do NOT transfer to any other agent. Do NOT call Jira tools during generation — only output the artifact JSON.
+    Once you generate the artifacts, only output the artifact JSON.
 
     Use the following JSON format for the generated test cases and related artifacts:
 
@@ -558,8 +561,103 @@ async def generate_test_cases(project_id: str, body: GenerateTestCasesRequest):
 
     print(f"Agent messages:\n{messages}")
 
+    jira_updated_messages = messages
+
+    
+    if(os.getenv("JIRA_MCP_ENABLED", "false").lower() == "true"):
+        # Push to Jira
+        try:
+            jira_prompt1 = f"""
+            ROUTE TO: testcasegenerator_testcasegenerator_agent
+            
+            Push the generated artifacts to Jira project {jira_project_key} in FOUR sequential steps through JiraMCP Server tools . 
+            Wait for each step to complete and capture the returned Jira keys and URLs before proceeding.
+
+            STEP 1 - Create Epics
+            Call jira_batch_create_issues with all Epic-level items:
+                issue_type  = "Epic"
+                summary     = epic name
+                description = epic description
+            Save each returned jira_issue_key and jira_issue_url as the epic's Jira fields.
+
+            STEP 2 - Create Features
+            Call jira_batch_create_issues with all Feature-level items:
+                issue_type  = "New Feature"
+                summary     = feature name
+                description = feature description
+                epic_link   = parent epic's Jira key from Step 1
+            Save each returned jira_issue_key and jira_issue_url as the feature's Jira fields.
+
+            STEP 3 - Create Use Cases
+            Call jira_batch_create_issues with all Use Case items:
+                issue_type  = "Improvement"
+                summary     = use case title
+                description = use case description (include acceptance criteria) + append at the end:
+                            "\n\nRelated Feature: <feature_jira_url>" using the parent feature URL from Step 2
+            No epic_link or parent_key needed.
+            Save each returned jira_issue_key and jira_issue_url as the use case's Jira fields.
+
+            STEP 4 - Create Test Cases
+            Call jira_batch_create_issues with all Test Case items:
+                issue_type  = "Task"
+                summary     = test case title
+                description = full test case text (preconditions, steps, expected result, compliance) + append at the end:
+                            "\n\nRelated Use Case: <use_case_jira_url>" using the parent use case URL from Step 3
+            No epic_link or parent_key needed.
+            Save each returned jira_issue_key and jira_issue_url as the test case's Jira fields.
+
+            After all four steps, update every artifact in the JSON with its Jira fields
+            (jira_issue_key, jira_issue_id, jira_issue_url) and return the fully updated artifact JSON.
+
+            """
+
+            jira_prompt =(
+                f"ROUTE TO: testcasegenerator_testcasegenerator_agent\n"
+                f"Connect to the JIRA MCP Server and push the following artifacts to Jira project '{jira_project_key}' "
+                f"in FOUR sequential steps. Wait for each step to complete and capture the returned Jira keys and URLs before proceeding.\n\n"
+                f"ARTIFACTS:\n{messages}\n\n"
+                f"Consider Priority Highest for Critical\n"
+                f"STEP 1 - Create Epics\n"
+                f"  Call jira_batch_create_issues:\n"
+                f"    issue_type  = 'Epic'\n"
+                f"    summary     = epic name\n"
+                f"    description = epic description\n"
+                f"  Save each returned jira_issue_key and jira_issue_url as that epic's Jira fields.\n\n"
+                f"STEP 2 - Create Features\n"
+                f"  Call jira_batch_create_issues:\n"
+                f"    issue_type  = 'New Feature'\n"
+                f"    summary     = feature name\n"
+                f"    description = feature description\n"
+                f"    epic_link   = parent epic's Jira key from Step 1\n"
+                f"  Save each returned jira_issue_key and jira_issue_url as that feature's Jira fields.\n\n"
+                f"STEP 3 - Create Use Cases\n"
+                f"  Call jira_batch_create_issues:\n"
+                f"    issue_type  = 'Improvement'\n"
+                f"    summary     = use case title\n"
+                f"    description = use case description (include acceptance criteria) + append at the end:\n"
+                f"                  '\\n\\nRelated Feature: <feature_jira_url>' using the parent feature URL from Step 2\n"
+                f"  No epic_link or parent_key needed.\n"
+                f"  Save each returned jira_issue_key and jira_issue_url as that use case's Jira fields.\n\n"
+                f"STEP 4 - Create Test Cases\n"
+                f"  Call jira_batch_create_issues:\n"
+                f"    issue_type  = 'Task'\n"
+                f"    summary     = test case title\n"
+                f"    description = full test case text (preconditions, steps, expected result, compliance) + append at the end:\n"
+                f"                  '\\n\\nRelated Use Case: <use_case_jira_url>' using the parent use case URL from Step 3\n"
+                f"  No epic_link or parent_key needed.\n"
+                f"  Save each returned jira_issue_key and jira_issue_url as that test case's Jira fields.\n\n"
+                f"After all four steps, update every artifact with its Jira fields "
+                f"(jira_issue_key, jira_issue_id, jira_issue_url) and return the fully updated artifact JSON."
+            )
+
+            jira_updated_messages = await agent_service.agent_workflow_run(jira_prompt)
+            print(f"Agent messages after Jira push:\n{jira_updated_messages}")
+
+        except Exception as e:
+            logger.warning(f"Jira push encountered errors: {e}")
+
     # Join all message parts and extract the JSON artifact payload
-    agent_content = "\n\n".join(msg for msg in messages if msg)
+    agent_content = "\n\n".join(msg for msg in jira_updated_messages if msg)
     artifact_data = extract_json_from_content(agent_content)
 
     if not artifact_data:
@@ -578,15 +676,13 @@ async def generate_test_cases(project_id: str, body: GenerateTestCasesRequest):
         sum(len(uc.get("test_cases", []))
             for e in epics
             for f in e.get("features", [])
-            for uc in f.get("use_cases", [])))
-
-    jira_key = project.get("jiraProjectKey", "PROJ")
+            for uc in f.get("use_cases", [])))    
 
     # Save full artifact document to CosmosDB
     cosmos_doc = {
         "projectId": project_id,
         "projectName": project.get("projectName", ""),
-        "jiraProjectKey": jira_key,
+        "jiraProjectKey": jira_project_key,
         "epics": epics,
         "totalEpics": epic_count,
         "totalFeatures": feat_count,

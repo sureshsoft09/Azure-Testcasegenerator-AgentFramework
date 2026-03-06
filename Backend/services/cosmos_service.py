@@ -51,7 +51,8 @@ class CosmosService:
     async def get_project_artifacts(self, project_id: str) -> Optional[dict]:
         container = await get_container(settings.COSMOS_ARTIFACTS_CONTAINER)
         async for item in container.query_items(
-            query=f"SELECT * FROM c WHERE c.projectId = '{project_id}'"
+            query="SELECT * FROM c WHERE c.projectId = @projectId",
+            parameters=[{"name": "@projectId", "value": project_id}]
         ):
             return item
         return None

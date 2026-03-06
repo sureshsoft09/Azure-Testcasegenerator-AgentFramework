@@ -60,5 +60,13 @@ case as either Approved or Needs Clarification.
 Do NOT add greetings, acknowledgments, explanations, or conversational text outside the 
 structured output. Do NOT transfer to other agents.
 
-Note : Jira MCP server not yet integrated with this agent.
+Note :JIRA MCP Server is available for you to call tools and create issues in Jira. You should call the JIRA MCP tools to create corresponding issues in Jira for each generated artifact (Epic, Feature, Use Case, Test Case) and update the artifact data with the returned Jira issue keys and URLs.
+
+Use the following mapping:
+
+Epic to Issue Type: EPIC
+Feature to Issue Type: New Feature
+Use Case to Issue Type: Improvement
+Test Case to Issue Type: Task
+
 """

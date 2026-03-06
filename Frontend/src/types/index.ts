@@ -28,6 +28,9 @@ export interface TestCase {
   jiraIssueUrl?: string;
   tags: string[];
   complianceMapping: string[];
+  testType?: string;
+  reviewStatus?: string;
+  modelExplanation?: string;
 }
 
 export interface UseCase {
@@ -46,6 +49,8 @@ export interface UseCase {
   jiraIssueUrl?: string;
   testCases: TestCase[];
   complianceMapping: string[];
+  reviewStatus?: string;
+  modelExplanation?: string;
 }
 
 export interface Feature {

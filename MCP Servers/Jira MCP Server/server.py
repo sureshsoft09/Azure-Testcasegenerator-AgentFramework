@@ -1,9 +1,14 @@
+import asyncio
 import logging
 import os
 
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Any, List
 from enum import Enum
+from dotenv import load_dotenv
+
+load_dotenv()  # Load .env from the current working directory
+
 from jira_client import jira_client
 
 from fastmcp import FastMCP
@@ -35,12 +40,18 @@ mcp = FastMCP(
 # ─── jira_list_projects ───────────────────────────────────────────────
 
 @mcp.tool()
-def jira_list_projects() -> list:
+def jira_list_projects(project_key: Optional[str] = None) -> list:
     """
     List all Jira projects accessible to the authenticated user.
     Returns a list of project objects with keys: key, id, name.
+
+    Args:
+        project_key: Optional project key to filter results to a single project.
     """
-    return jira_client.list_projects()
+    projects = jira_client.list_projects()
+    if project_key:
+        projects = [p for p in projects if p.get("key", "").upper() == project_key.upper()]
+    return projects
 
 # ─── jira_create_issue ────────────────────────────────────────────────
 
@@ -88,9 +99,13 @@ def jira_create_issue(
 # ─── jira_get_issue ───────────────────────────────────────────────────
 
 @mcp.tool()
-def jira_get_issue(issue_key: str) -> dict:
+def jira_get_issue(project_key: str, issue_key: str) -> dict:
     """
     Get full details of a Jira issue by its key (e.g. PROJ-42).
+
+    Args:
+        project_key: Jira project key e.g. PROJ.
+        issue_key:   Full issue key e.g. PROJ-42.
 
     Returns dict with: key, id, url, summary, description, status,
     priority, issueType, assignee, reporter, labels, created, updated.
@@ -101,6 +116,7 @@ def jira_get_issue(issue_key: str) -> dict:
 
 @mcp.tool()
 def jira_update_issue(
+    project_key: str,
     issue_key: str,
     summary: Optional[str] = None,
     description: Optional[str] = None,
@@ -112,6 +128,7 @@ def jira_update_issue(
     Update an existing Jira issue. Only supplied fields are changed.
 
     Args:
+        project_key:   Jira project key e.g. PROJ.
         issue_key:     Jira issue key e.g. PROJ-42.
         summary:       New title (optional).
         description:   New description (optional).
@@ -134,29 +151,34 @@ def jira_update_issue(
 # ─── jira_search_issues ───────────────────────────────────────────────
 
 @mcp.tool()
-def jira_search_issues(jql: str, max_results: int = 50) -> list:
+def jira_search_issues(project_key: str, jql: str = "", max_results: int = 50) -> list:
     """
-    Search Jira issues using JQL (Jira Query Language).
+    Search Jira issues using JQL (Jira Query Language), scoped to the given project.
 
     Args:
-        jql:         JQL query e.g. 'project = PROJ AND issuetype = Epic ORDER BY created DESC'.
+        project_key: Jira project key e.g. PROJ. Automatically scopes the query.
+        jql:         Additional JQL filters e.g. 'issuetype = Epic ORDER BY created DESC'.
+                     The project filter is prepended automatically.
         max_results: Maximum results to return (default 50, max 100).
 
     Returns:
         List of issue dicts with key, id, summary, status, priority, issueType, assignee.
     """
-    return jira_client.search_issues(jql=jql, max_results=min(max_results, 100))
+    project_clause = f"project = {project_key}"
+    full_jql = f"{project_clause} AND {jql}" if jql.strip() else project_clause
+    return jira_client.search_issues(jql=full_jql, max_results=min(max_results, 100))
 
 # ─── jira_add_comment ─────────────────────────────────────────────────
 
 @mcp.tool()
-def jira_add_comment(issue_key: str, body: str) -> dict:
+def jira_add_comment(project_key: str, issue_key: str, body: str) -> dict:
     """
     Add a comment to an existing Jira issue.
 
     Args:
-        issue_key: Jira issue key e.g. PROJ-42.
-        body:      Comment text.
+        project_key: Jira project key e.g. PROJ.
+        issue_key:   Jira issue key e.g. PROJ-42.
+        body:        Comment text.
 
     Returns:
         dict with id, body, created.
@@ -166,13 +188,14 @@ def jira_add_comment(issue_key: str, body: str) -> dict:
 # ─── jira_get_transitions ─────────────────────────────────────────────
 
 @mcp.tool()
-def jira_get_transitions(issue_key: str) -> list:
+def jira_get_transitions(project_key: str, issue_key: str) -> list:
     """
     Get available workflow transitions for a Jira issue.
     Use this before jira_transition_issue to discover valid transition IDs.
 
     Args:
-        issue_key: Jira issue key e.g. PROJ-42.
+        project_key: Jira project key e.g. PROJ.
+        issue_key:   Jira issue key e.g. PROJ-42.
 
     Returns:
         List of dicts with id (str) and name (str).
@@ -182,12 +205,13 @@ def jira_get_transitions(issue_key: str) -> list:
 # ─── jira_transition_issue ────────────────────────────────────────────
 
 @mcp.tool()
-def jira_transition_issue(issue_key: str, transition_id: str) -> dict:
+def jira_transition_issue(project_key: str, issue_key: str, transition_id: str) -> dict:
     """
     Move a Jira issue to a new workflow status using a transition ID.
     Use jira_get_transitions first to get the valid transition IDs.
 
     Args:
+        project_key:   Jira project key e.g. PROJ.
         issue_key:     Jira issue key e.g. PROJ-42.
         transition_id: Numeric transition ID as string e.g. '31'.
 
@@ -196,7 +220,68 @@ def jira_transition_issue(issue_key: str, transition_id: str) -> dict:
     """
     return jira_client.transition_issue(issue_key=issue_key, transition_id=transition_id)
 
-logger.info("Registered 8 Jira MCP tools.")
+# ─── jira_link_issues ────────────────────────────────────────────────
+
+@mcp.tool()
+def jira_link_issues(
+    project_key: str,
+    from_key: str,
+    to_key: str,
+    link_type: str = "Relates to",
+) -> dict:
+    """
+    Create a named link between two Jira issues.
+
+    Args:
+        project_key: Jira project key e.g. PROJ.
+        from_key:    Source issue key e.g. PROJ-10.
+        to_key:      Target issue key e.g. PROJ-11.
+        link_type:   Link type name. Common values:
+                       'Relates to' (default), 'Blocks', 'is blocked by',
+                       'Duplicate', 'is tested by', 'tests'.
+
+    Returns:
+        dict with fromKey, toKey, linkType, linked.
+    """
+    return jira_client.link_issues(from_key=from_key, to_key=to_key, link_type=link_type)
+
+# ─── jira_batch_create_issues ─────────────────────────────────────────
+
+@mcp.tool()
+async def jira_batch_create_issues(
+    project_key: str,
+    issues: List[Dict[str, Any]],
+) -> dict:
+    """
+    Bulk-create multiple Jira issues in a single call.
+
+    Args:
+        issues:      List of issue objects. Each must contain:
+                       - summary     (str)  Issue title.
+                       - description (str)  Issue body.
+                       - issue_type  (str)  Task | Story | Bug | Epic | Test.
+                     Optional per-issue fields:
+                       - priority    (str)  Highest/High/Medium/Low/Lowest.
+                       - parent_key  (str)  Parent issue key.
+                       - epic_link   (str)  Epic key to link to.
+                       - labels      (list) Label strings.
+        project_key: Jira project key (defaults to JIRA_PROJECT_KEY env var).
+
+    Returns:
+        dict with:
+          - created: list of {index, jira_issue_id, jira_issue_key, jira_issue_url, summary}
+          - failed:  list of {index, summary, error}
+          - total:   total number of issues attempted
+    """
+    result = jira_client.batch_create_issues(issues=issues, project_key=project_key)
+
+    # Brief pause after any failures to respect Jira rate limits
+    if result["failed"]:
+        await asyncio.sleep(2)
+
+    return result
+
+logger.info("Registered 10 Jira MCP tools.")
 
 
 
