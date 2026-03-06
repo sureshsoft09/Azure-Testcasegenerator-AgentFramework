@@ -1,0 +1,61 @@
+name: Deploy to Azure Web Apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# ── Required GitHub Secrets ──────────────────────────────────────────────────
+# ACR_LOGIN_SERVER  – e.g. testgenacr.azurecr.io
+# ACR_USERNAME      – ACR admin username (= the ACR name, e.g. testgenacr)
+# ACR_PASSWORD      – ACR admin password
+# BACKEND_CD_URL    – Web App CD webhook URL  (printed by azure-provision.ps1)
+# JIRA_MCP_CD_URL   – Web App CD webhook URL  (printed by azure-provision.ps1)
+# FRONTEND_CD_URL   – Web App CD webhook URL  (printed by azure-provision.ps1)
+#
+# No Azure service principal is required.
+# After images are pushed, each Web App's CD webhook URL is POSTed to trigger
+# an immediate pull of the new :latest image.
+# ─────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  build-push-deploy:
+    name: Build, Push & Deploy All Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build & push backend
+        run: |
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/testgen-backend
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" ./Backend
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      - name: Build & push Jira MCP Server
+        run: |
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/testgen-jira-mcp
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" "./MCP Servers/Jira MCP Server"
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      - name: Build & push frontend
+        run: |
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/testgen-frontend
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" ./Frontend
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+
+      - name: Trigger Web App deployments
+        run: |
+          curl -s -o /dev/null -w "Backend deploy:  %{http_code}\n"  -X POST "${{ secrets.BACKEND_CD_URL }}"
+          curl -s -o /dev/null -w "Jira MCP deploy: %{http_code}\n"  -X POST "${{ secrets.JIRA_MCP_CD_URL }}"
+          curl -s -o /dev/null -w "Frontend deploy: %{http_code}\n"  -X POST "${{ secrets.FRONTEND_CD_URL }}"
