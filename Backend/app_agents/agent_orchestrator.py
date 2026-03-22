@@ -9,7 +9,7 @@ import os
 import asyncio
 from typing import List, Optional
 from dotenv import load_dotenv
-from azure.identity import AzureCliCredential
+from azure.identity import DefaultAzureCredential
 from azure.ai.agents import AgentsClient
 from agent_framework.azure import AzureAIAgentClient
 from agent_framework.orchestrations import HandoffBuilder
@@ -86,7 +86,7 @@ class AgentOrchestrator:
         """Initialize the orchestrator with Azure credentials and configuration."""
         load_dotenv()
         
-        self.credential = AzureCliCredential()
+        self.credential = DefaultAzureCredential()
         self.project_endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
         self.model_deployment_name = os.getenv("AZURE_AI_MODEL_DEPLOYMENT_NAME")
         
