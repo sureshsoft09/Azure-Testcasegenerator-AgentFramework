@@ -203,15 +203,11 @@ class AgentOrchestrator:
             name=REQREVIEWER_AGENT_NAME,
             instructions=REQREVIEWER_INSTRUCTIONS,
             config=AGENT_CONFIGS['reqreviewer']
-        )
-        
-        # Create testgenerator agent with Jira integration instructions
-        print(f"  Jira MCP tool will be attached to {TESTGEN_AGENT_NAME}")
-        testgen_instructions = TESTGEN_INSTRUCTIONS + "\n\nJIRA INTEGRATION: You have access to Jira tools to create, update, and search Jira issues. Use them when appropriate for test case management."
-        
+        )        
+
         self.foundry_agents['testgenerator'] = await self.get_or_create_agent(
             name=TESTGEN_AGENT_NAME,
-            instructions=testgen_instructions,
+            instructions=TESTGEN_INSTRUCTIONS,
             config=AGENT_CONFIGS['testgenerator']
         )
         
@@ -268,38 +264,40 @@ class AgentOrchestrator:
         
         # Wrap all agents for the workflow
         print("Wrapping agents for workflow...")
-        
-        master_agent = self.foundry_client.as_agent(
-            agent_id=self.foundry_agents['master'].id,
-            name=self.foundry_agents['master'].name
-        )
-        
-        reqreviewer_agent = self.foundry_client.as_agent(
-            agent_id=self.foundry_agents['reqreviewer'].id,
-            name=self.foundry_agents['reqreviewer'].name
-        )
-        
+
         # Wrap testgenerator agent, attaching Jira MCP tool only if the server is reachable
         jira_available = await self._check_jira_mcp_available()
-        if jira_available:
+        if jira_available and os.getenv("JIRA_MCP_ENABLED", "false").lower() == "true" :
             if not self.jira_mcp_tool:
                 self.jira_mcp_tool = MCPStreamableHTTPTool(
                     name="JiraMCP Server",
                     description="Jira MCP server to create, update and search Jira Issues.",
                     url=self.jira_mcp_url
                 )
-            testgenerator_agent = self.foundry_client.as_agent(
-                agent_id=self.foundry_agents['testgenerator'].id,
-                name=self.foundry_agents['testgenerator'].name,
-                tools=[self.jira_mcp_tool]
-            )
-            print(f"  ✓ Attached Jira MCP tool to {self.foundry_agents['testgenerator'].name}")
+                master_agent = self.foundry_client.as_agent(
+                    agent_id=self.foundry_agents['master'].id,
+                    name=self.foundry_agents['master'].name,
+                    tools=[self.jira_mcp_tool]
+                )                
+            
+            print(f"  ✓ Attached Jira MCP tool to {self.foundry_agents['master'].name}")
         else:
-            testgenerator_agent = self.foundry_client.as_agent(
-                agent_id=self.foundry_agents['testgenerator'].id,
-                name=self.foundry_agents['testgenerator'].name
+        
+            master_agent = self.foundry_client.as_agent(
+                agent_id=self.foundry_agents['master'].id,
+                name=self.foundry_agents['master'].name                
             )
-            print(f"  ⚠ Jira MCP server not reachable at {self.jira_mcp_url} — running without Jira tools")
+            print(f"  ⚠ Jira MCP server not attached to {self.foundry_agents['master'].name} — running without Jira tools")
+        
+        reqreviewer_agent = self.foundry_client.as_agent(
+            agent_id=self.foundry_agents['reqreviewer'].id,
+            name=self.foundry_agents['reqreviewer'].name
+        )        
+ 
+        testgenerator_agent = self.foundry_client.as_agent(
+            agent_id=self.foundry_agents['testgenerator'].id,
+            name=self.foundry_agents['testgenerator'].name
+        )        
         
         enhance_agent = self.foundry_client.as_agent(
             agent_id=self.foundry_agents['enhance'].id,
