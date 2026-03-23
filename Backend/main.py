@@ -1,5 +1,5 @@
 import os
-
+import asyncio
 
 import logging
 from contextlib import asynccontextmanager
@@ -23,16 +23,27 @@ logging.getLogger("azure.core").setLevel(logging.WARNING)
 logging.getLogger("azure").setLevel(logging.WARNING)
 
 
+async def _init_agents_background() -> None:
+    """Run agent initialization in the background so the server can start immediately."""
+    try:
+        logger.info("Background task: initializing agent service...")
+        await initialize_agent_service()
+        logger.info("Background task: agent service ready.")
+    except Exception:
+        logger.exception("Background task: agent service initialization failed.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     FastAPI lifespan handler.
-    - Startup: initializes the AgentOrchestrator once (creates agents + workflow).
+    - Startup: fires agent initialization as a background task so the port
+      binds immediately and Azure's health probe succeeds within the timeout.
     - Shutdown: cleans up the orchestrator.
     """
-    logger.info("Application startup: initializing agent service...")
-    await initialize_agent_service()
-    logger.info("Agent service ready. API is accepting requests.")
+    logger.info("Application startup: scheduling agent service initialization...")
+    asyncio.create_task(_init_agents_background())
+    logger.info("Server is ready. Agent initialization running in background.")
 
     yield  # Application runs here
 
@@ -65,9 +76,11 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"]
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint — always returns 200 so Azure's probe succeeds."""
+    from services.agent_service import is_agent_service_ready
     return {
         "status": "healthy",
+        "agents_ready": is_agent_service_ready(),
         "version": "1.0.0"
     }
 

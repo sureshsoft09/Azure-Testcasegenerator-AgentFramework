@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 _orchestrator: AgentOrchestrator | None = None
 
 
+def is_agent_service_ready() -> bool:
+    """Return True once the orchestrator has been fully initialized."""
+    return _orchestrator is not None
+
+
 async def initialize_agent_service() -> None:
     """
     Initialize the AgentOrchestrator once at application startup.
