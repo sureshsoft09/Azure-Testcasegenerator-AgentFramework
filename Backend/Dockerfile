@@ -30,5 +30,7 @@ EXPOSE 8000
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
-# 2 workers is safe for a B1/B2 App Service plan; scale via UVICORN_WORKERS env var
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2}"]
+# Default to 1 worker — agent initialisation runs as a background task and
+# multiple workers would race to create/update the same Foundry agents.
+# Scale via the UVICORN_WORKERS App Service app-setting when needed.
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1}"]

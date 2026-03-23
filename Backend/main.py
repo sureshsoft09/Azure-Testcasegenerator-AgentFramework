@@ -74,6 +74,18 @@ app.include_router(migrate.router, prefix="/api/migrate", tags=["Migrate"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 
 
+@app.get("/")
+async def root():
+    """Root endpoint — used by Azure App Service warmup/health probes."""
+    from services.agent_service import is_agent_service_ready
+    return {
+        "service": "AI Test Generator API",
+        "status": "running",
+        "agents_ready": is_agent_service_ready(),
+        "version": "1.0.0"
+    }
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint — always returns 200 so Azure's probe succeeds."""

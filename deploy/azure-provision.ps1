@@ -71,8 +71,15 @@ az webapp config appsettings set `
     --resource-group $ResourceGroup `
     --settings `
         WEBSITES_PORT=8000 `
+        WEBSITE_WARMUP_PATH="/health" `
         APP_ENV=production `
         CORS_ORIGINS="[`"https://${FrontendAppName}.azurewebsites.net`"]" | Out-Null
+
+# Configure health-check path so App Service monitors liveness correctly
+az webapp config set `
+    --name           $BackendAppName `
+    --resource-group $ResourceGroup `
+    --generic-configurations '{"healthCheckPath": "/health"}' | Out-Null
 
 # ── 3. Jira MCP Web App ───────────────────────────────────────────────────────
 Write-Host "`n[3/5] Creating Jira MCP Web App '$JiraMcpAppName'..."
